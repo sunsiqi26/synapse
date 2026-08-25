@@ -1,0 +1,51 @@
+id: "java/spring/sqli"
+name: "Java Spring - SQL Injection via Orphan Stitching"
+description: "检测 Spring Boot 项目中由于 IoC 解耦导致的 SQL 注入漏洞链，使用孤儿缝合策略跨越接口依赖注入的调用断层"
+author: "hybris-team"
+
+phases:
+  phase0:
+    script: "payload/java/spring_sqli_direct.sc"
+  phase1:
+    script: "payload/java/spring_sqli_orphan.sc"
+
+llm:
+  vuln_type: "SQL Injection"
+  max_tokens: 1500
+  phase3_prompt: "本案关注 SQL 注入漏洞。你必须顺藤摸瓜，通过阅读源码追踪数据流，最终重点审查动态拼装 SQL 语句的底层实现处是否使用了安全的参数化查询（如 PreparedStatement）。即使外层使用了类似 executeQuery() 的方法，也必须确认其传入的 query 字符串是否已经拼接了未曾转义的用户输入。如果发现使用了可靠的参数化绑定或转义层，请立刻判定为 FALSE_POSITIVE。"
+  temperature: 0.2
+  prompt_template: |
+    你是一位精通结构化上下文语义缝合的顶级专家（Graph Stitcher）。
+    我们正在扫描一个采用了强耦合解耦架构（如 IoC、代理、反射）的 Spring 项目，试图拼凑一条完整的业务流。
+
+    静态分析引擎提取到了上下两段连通的断层切片，由于框架的魔法（如 `@Autowired`、接口继承隐式调用等），物理引擎在这里断开了追踪。
+
+    【高精度断点调用流（Chain Nodes）】
+    重点利用！以下记录了断连点上游（抛出数据）和下游（接收数据）的具体交接片段，
+    它包含了每一层真正的 `method_signature`（形参列表）与 `call_to_next`（调用下家的实参）。
+    {chain_nodes_json}
+
+    --- 【上游 Source 区块：输入点与最后抛出动作】 ---
+    {source_snippet}
+
+    --- 【断连鸿沟与盲区特征】 ---
+    断点触发函数：{breakpoint_method}
+    断点处向外抛出值的源码：{breakpoint_code}
+
+    --- 【下游 Sink 区块：接口实现与落地动作】 ---
+    {sink_snippet}
+
+    请执行“盲接判断”（Blind-Stitch Validation）：
+    严密观察此处的断点代码 `call_to_next` 抛出的实参与后续承接类的 `method_signature` 形参，
+    你认为从上游传入的关键数据，能否通过 Spring IoC、继承树或其它魔法协议，逻辑合理、未经截断地“传导 / 赋值”给下游 Sink 函数？
+    （请注意：你不需要管代码里到底有没有 XSS/SQL 过滤，你的唯一职责是判定这两条断裂的数据流管道究竟能不能接上。）
+
+    ### 裁决格式 ###
+    判定连接成功请在一律首行输出：[EXPLOITABLE] 
+    判定存在参数错乱、接口绝对不兼容导致盲接失败，请在首行输出：[SAFE]
+    第二行开始，简要且专业地用中文给出接口接骨吻合的分析证据。
+
+report:
+  severity: "CRITICAL"
+  cwe: "CWE-89"
+  remediation: "使用 PreparedStatement 或 MyBatis 的 #{param} 参数化查询替代字符串拼接，并在 Service 层对所有用户输入执行白名单校验。"

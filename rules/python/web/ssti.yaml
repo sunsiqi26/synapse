@@ -1,0 +1,46 @@
+id: "python/web/ssti"
+name: "Python Web - Server Side Template Injection via Orphan Stitching"
+description: "检测 Python Web 项目中因为鸭子类型或 kwargs 隐式参数传递导致跨模块追踪失联的 SSTI 漏洞，使用孤儿缝合策略连接渲染边界。"
+author: "hybris-team"
+
+phases:
+  phase0:
+    script: "payload/python/web_ssti_direct.sc"
+  phase1:
+    script: "payload/python/web_ssti_orphan.sc"
+
+llm:
+  vuln_type: "SSTI (Server-Side Template Injection)"
+  max_tokens: 1500
+  phase3_prompt: "【❗核心判罚准则❗】本案侧重于模板注入 (SSTI)。Sink 为模板渲染引擎（render_template_string、jinja2.Template、mako.Template、django.Template）或编排执行引擎（ansible_runner.run，Ansible 默认会对变量进行 Jinja2 递归渲染，例如传入\"{{ lookup('pipe', 'id') }}\"）。已经确定的是这几个sink点的不当使用都会造成SSTI RCE"
+  temperature: 0.2
+  prompt_template: |
+    你是一位高级静态代码分析数据流“盲接”专家（Blind-Stitch Analyzer）。
+    当前通用 SAST 图谱引擎由于目标代码存在隐式调用、动态参数透传、适配器装饰器包装等复杂特性，导致控制流或数据流在中间层断开。
+
+    【任务目标】
+    上游（Source）标记了具有潜在威胁的数据抛出点，下游（Sink）为危险函数执行点。你的唯一任务是基于引擎提供的底层 AST 切片，研判这两个片断是否存在“数据跨层/跨方法传递接骨”的技术可行性。
+
+    【高精度断点调用流（Chain Nodes）】
+    {chain_nodes_json}
+
+    --- 【上游抛出区】 ---
+    {source_snippet}
+    [触发函数]: {breakpoint_method}
+
+    --- 【下游接收区】 ---
+    {sink_snippet}
+
+    【图谱裁决原则：宽进严出】
+    1. **抽象隐患追踪**：SAST 提取的往往只有残破残破参数签名或方法委托动作。只要参数类型签名、内部解包机制呈现出数量对称性、命名关联或是同类实例的隐式中转（比如上级接收 kwargs，向下级透传 kwargs，或者跨越类属性），即视作流向成立！
+    2. **极高容错（防漏报机制）**：你不是判断漏洞是否真能打穿（那是 Phase 3 专家的事），你仅仅是在评估“数据传输通道”是否可能连通。只要从参数路由或接口委托特征判断有超过 20% 的接驳通道概率，就必须放流至验证引擎，切忌苛求显式的硬接线代码！
+
+    ### 强制返回规范
+    如满足上述接驳关联性，请首行必须输出: [EXPLOITABLE]
+    除非在接口签名上存在明确的变量覆盖、物理对象被丢弃或类型冲突导致**绝对不可能传递**，才允许首行输出: [SAFE]
+    第二行起，通过分析 `chain_nodes` 里的 `call_to_next` 和 `method_signature` 简要阐述接骨逻辑。
+
+report:
+  severity: "CRITICAL"
+  cwe: "CWE-94"
+  remediation: "避免从用户输入中读取原始字符串作为模板；在使用 `render_template_string` 或 Jinja2 模板时，务必对输入变量进行环境上下文转义（通常现代 Web 框架是默认开启 autoescape 的，除非强行关闭）。"

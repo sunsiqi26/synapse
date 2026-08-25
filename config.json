@@ -1,0 +1,10 @@
+{
+    "api_key": "sk-df2-A0EOdfLeJ1iKDfDZ4uFIRIjI1tYtluRj-dLJHY_CH0c",
+    "api_base": "https://df.dawnloadai.com:9888/v1",
+    "model": "GLM-5.1",
+    "timeout_seconds": 300,
+    "phase2_max_workers": 2,
+    "phase3_max_workers": 1,
+    "phase3_max_chains": 100,
+    "phase3_max_turns": 40
+}
